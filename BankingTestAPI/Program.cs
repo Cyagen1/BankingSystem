@@ -1,3 +1,7 @@
+using BankingTestAPI.DbContexts;
+using BankingTestAPI.Services;
+using Microsoft.EntityFrameworkCore;
+
 namespace BankingTestAPI
 {
     public class Program
@@ -12,6 +16,10 @@ namespace BankingTestAPI
             // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
             builder.Services.AddEndpointsApiExplorer();
             builder.Services.AddSwaggerGen();
+
+            builder.Services.AddDbContextPool<AccountContextSqlServer>( 
+                options => options.UseSqlServer(builder.Configuration["ConnectionStrings:AccountsDBConnection"]));
+            builder.Services.AddScoped<IAccountRepository, AccountRepository>();
 
             var app = builder.Build();
 

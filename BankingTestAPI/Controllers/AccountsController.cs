@@ -1,4 +1,6 @@
-﻿using BankingTestAPI.Models;
+﻿using BankingTestAPI.DbContexts;
+using BankingTestAPI.Models;
+using BankingTestAPI.Services;
 using Microsoft.AspNetCore.JsonPatch;
 using Microsoft.AspNetCore.Mvc;
 
@@ -8,18 +10,22 @@ namespace BankingTestAPI.Controllers
     [ApiController]
     public class AccountsController : ControllerBase
     {
-        private readonly AccountContext _context;
+        private readonly AccountContextSqlServer _context;
+        private readonly IAccountRepository _accountRepository;
 
-        public AccountsController(AccountContext context)
+        public AccountsController(AccountContextSqlServer context, IAccountRepository accountRepository)
         {
             _context = context ?? throw new ArgumentNullException(nameof(context));
+            _accountRepository= accountRepository ?? throw new ArgumentNullException(nameof(accountRepository));
         }
 
 
         [HttpGet("{id}")]
-        public async Task<ActionResult<AccountDto>> GetAccount(int id)
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        public async Task<ActionResult<AccountDto>> GetAccount([FromRoute] int id)
         {
-            var account = await _context.Accounts.FindAsync(id);
+            var account = await _accountRepository.GetAccount(id);
 
             if (account == null)
             {
@@ -31,67 +37,61 @@ namespace BankingTestAPI.Controllers
 
 
         [HttpPost]
-        public async Task<ActionResult<AccountDto>> PostAccount(AccountDto account)
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        [ProducesResponseType(StatusCodes.Status201Created)]
+        public async Task<ActionResult<AccountDto>> PostAccount([FromBody] AccountDto account)
         {
-            _context.Add(account);
+            await _accountRepository.CreateAccount(account);
             if (account.State < 100)
             {
                 return BadRequest("Account state needs to have at least 100$");
             }
-            await _context.SaveChangesAsync();
 
             return CreatedAtAction(nameof(GetAccount), new { id = account.Id }, account);
         }
 
 
         [HttpDelete("{id}")]
-        public async Task<IActionResult> DeleteAccount(int id)
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        public async Task<IActionResult> DeleteAccount([FromRoute] int id)
         {
-            var account = await _context.Accounts.FindAsync(id);
+            var account = await _accountRepository.DeleteAccount(id);
             if (account == null)
             {
-                return NoContent();
+                return NotFound();
             }
-
-            _context.Remove(account);
-            await _context.SaveChangesAsync();
 
             return NoContent();
         }
 
+
         [HttpPatch("{id}/deposit")]
-        public async Task<IActionResult> Deposit(JsonPatchDocument<AccountDto> patchDocument, int id)
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        public async Task<IActionResult> Deposit([FromRoute] int id)
         {
-            var account = await _context.Accounts.FindAsync(id);
-            int limit = 10000;
+            var account = await _context.Accounts.FindAsync(id);            
 
             if (account == null)
             {
                 return NotFound();
             }
 
-            int currentState = account.State;
-
-            patchDocument.ApplyTo(account, ModelState);
-
-            if (!ModelState.IsValid)
+            var deposit = await _accountRepository.Deposit(account);
+            if (deposit == null)
             {
                 return BadRequest();
             }
-
-            if (account.State - currentState > limit)
-            {
-                return BadRequest($"Deposit cannot be more than {limit}.");
-            }
-
-            await _context.SaveChangesAsync();
 
             return NoContent();
 
         }
 
         [HttpPatch("{id}/withdraw")]
-        public async Task<IActionResult> Withdraw([FromRoute] int id, [FromBody] Withdrawal withdrawal)
+        [ProducesResponseType(StatusCodes.Status404NotFound)]
+        [ProducesResponseType(StatusCodes.Status204NoContent)]
+        public async Task<IActionResult> Withdraw([FromRoute] int id)
         {
             var account = await _context.Accounts.FindAsync(id);
 
@@ -100,13 +100,11 @@ namespace BankingTestAPI.Controllers
                 return NotFound();
             }
 
-            if (withdrawal.Value > account.State * 0.9)
+            var withdrawal = await _accountRepository.Withdraw(account);
+            if (withdrawal == null)
             {
-                return BadRequest($"Withdrawal too high.");
+                return BadRequest();
             }
-
-            account.State -= withdrawal.Value;
-            await _context.SaveChangesAsync();
 
             return NoContent();
         }
